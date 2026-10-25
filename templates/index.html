@@ -1,0 +1,463 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ExpenseFlow | Personal Finance</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <header class="topbar">
+        <div class="topbar-inner">
+            <a class="brand" href="{{ url_for('home') }}">
+                <span class="brand-mark">E</span>
+                <span>Expense<span class="brand-accent">Flow</span></span>
+            </a>
+            <span class="topbar-caption">PERSONAL FINANCE WORKSPACE</span>
+        </div>
+    </header>
+
+    <main class="page-shell">
+        <section class="welcome-row">
+            <div>
+                <p class="eyebrow">YOUR MONEY, IN FOCUS</p>
+                <h1>Financial overview</h1>
+                <p class="muted">Track spending, stay on budget, and make informed decisions.</p>
+            </div>
+            <div class="date-chip">
+                <span class="status-dot"></span>
+                {{ selected_month }}
+            </div>
+        </section>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+                <div class="flash-stack" aria-live="polite">
+                    {% for category, message in messages %}
+                        <div class="flash flash-{{ category }}">{{ message }}</div>
+                    {% endfor %}
+                </div>
+            {% endif %}
+        {% endwith %}
+
+        <section class="stat-grid">
+            <article class="stat-card stat-primary">
+                <div class="stat-top">
+                    <span class="stat-label">Spent this month</span>
+                    <span class="stat-icon">↗</span>
+                </div>
+                <p class="stat-value">₹{{ "%.2f"|format(monthly_total) }}</p>
+                <p class="stat-foot">
+                    Across {{ expense_count }} transaction{{ '' if expense_count == 1 else 's' }}
+                </p>
+            </article>
+
+            <article class="stat-card">
+                <div class="stat-top">
+                    <span class="stat-label">Monthly budget</span>
+                    <span class="stat-icon icon-green">◎</span>
+                </div>
+                <p class="stat-value">₹{{ "%.2f"|format(monthly_budget) }}</p>
+                <p class="stat-foot">Your current spending limit</p>
+            </article>
+
+            <article class="stat-card">
+                <div class="stat-top">
+                    <span class="stat-label">Budget remaining</span>
+                    <span class="stat-icon icon-blue">⌁</span>
+                </div>
+                <p class="stat-value {{ 'negative' if budget_remaining < 0 else '' }}">
+                    ₹{{ "%.2f"|format(budget_remaining) }}
+                </p>
+                <p class="stat-foot">{{ "%.0f"|format(budget_percent) }}% of budget used</p>
+            </article>
+
+            <article class="stat-card">
+                <div class="stat-top">
+                    <span class="stat-label">All-time spending</span>
+                    <span class="stat-icon icon-purple">▤</span>
+                </div>
+                <p class="stat-value">₹{{ "%.2f"|format(all_time_total) }}</p>
+                <p class="stat-foot">Total expenses recorded</p>
+            </article>
+        </section>
+
+        <section class="content-grid">
+            <article class="panel budget-panel">
+                <div class="panel-heading">
+                    <div>
+                        <p class="eyebrow">BUDGET PLANNER</p>
+                        <h2>Monthly budget</h2>
+                    </div>
+                    <span class="pill">Active</span>
+                </div>
+
+                <div class="budget-amount-row">
+                    <span class="muted">Spent so far</span>
+                    <strong>₹{{ "%.2f"|format(monthly_total) }}</strong>
+                </div>
+
+                <div
+                    class="progress-track"
+                    role="progressbar"
+                    aria-label="Monthly budget used"
+                    aria-valuemin="0"
+                    aria-valuemax="100"
+                    aria-valuenow="{{ budget_percent|round|int }}"
+                >
+                    <div
+                        class="progress-fill {{ 'progress-over' if monthly_total > monthly_budget else '' }}"
+                        style="width: {{ budget_percent }}%"
+                    ></div>
+                </div>
+
+                <div class="progress-caption">
+                    <span>{{ "%.0f"|format(budget_percent) }}% used</span>
+                    <span>₹{{ "%.2f"|format([budget_remaining, 0]|max) }} left</span>
+                </div>
+
+                {% if budget_remaining < 0 %}
+                    <p class="budget-warning">
+                        You are ₹{{ "%.2f"|format(-budget_remaining) }} over your budget.
+                    </p>
+                {% endif %}
+
+                <form action="{{ url_for('update_budget') }}" method="POST" class="budget-form">
+                    <label for="monthly_budget">Update monthly budget (₹)</label>
+                    <div class="inline-field">
+                        <input
+                            type="number"
+                            id="monthly_budget"
+                            name="monthly_budget"
+                            min="0.01"
+                            step="0.01"
+                            value="{{ '%.2f'|format(monthly_budget) }}"
+                            required
+                        >
+                        <button type="submit" class="button button-dark">Save budget</button>
+                    </div>
+                </form>
+            </article>
+
+            <article class="panel chart-panel">
+                <div class="panel-heading">
+                    <div>
+                        <p class="eyebrow">SPENDING BREAKDOWN</p>
+                        <h2>By category</h2>
+                    </div>
+                    <span class="muted small-text">{{ selected_month }}</span>
+                </div>
+
+                {% if category_totals %}
+                    <div class="chart-wrap">
+                        <canvas
+                            id="categoryChart"
+                            aria-label="Doughnut chart of spending by category"
+                            role="img"
+                        ></canvas>
+                    </div>
+
+                    <div class="category-legend">
+                        {% for item in category_totals %}
+                            <div class="legend-row">
+                                <span class="legend-name">
+                                    <span class="legend-dot legend-{{ loop.index0 % 6 }}"></span>
+                                    {{ item["category"] }}
+                                </span>
+                                <strong>₹{{ "%.2f"|format(item["total"]) }}</strong>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <div class="empty-chart">
+                        <span class="empty-chart-icon">◌</span>
+                        <strong>No spending to chart yet</strong>
+                        <p>Add an expense dated in this month to see your breakdown.</p>
+                    </div>
+                {% endif %}
+            </article>
+        </section>
+
+        <section class="panel add-panel">
+            <div class="panel-heading">
+                <div>
+                    <p class="eyebrow">TRANSACTION ENTRY</p>
+                    <h2>Add an expense</h2>
+                </div>
+                <span class="subtle-tag">New transaction</span>
+            </div>
+
+            <form action="{{ url_for('add_expense') }}" method="POST" class="expense-form">
+                <div class="form-field">
+                    <label for="amount">Amount (₹)</label>
+                    <input
+                        type="number"
+                        id="amount"
+                        name="amount"
+                        min="0.01"
+                        step="0.01"
+                        placeholder="e.g. 250.00"
+                        required
+                    >
+                </div>
+
+                <div class="form-field">
+                    <label for="category">Category</label>
+                    <select id="category" name="category" required>
+                        <option value="">Choose category</option>
+                        {% for category_name in categories %}
+                            <option value="{{ category_name }}">{{ category_name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="form-field">
+                    <label for="date">Date</label>
+                    <input type="date" id="date" name="date" value="{{ today }}" required>
+                </div>
+
+                <div class="form-field form-field-wide">
+                    <label for="description">Description</label>
+                    <input
+                        type="text"
+                        id="description"
+                        name="description"
+                        maxlength="200"
+                        placeholder="What did you spend on?"
+                        required
+                    >
+                </div>
+
+                <div class="form-submit">
+                    <button type="submit" class="button button-primary">＋ Add expense</button>
+                </div>
+            </form>
+        </section>
+
+        <section class="panel transactions-panel">
+            <div class="panel-heading transaction-heading">
+                <div>
+                    <p class="eyebrow">YOUR RECORDS</p>
+                    <h2>Transactions</h2>
+                    <p class="muted small-text">Search, filter, edit, or remove a transaction.</p>
+                </div>
+                <span class="result-count">
+                    {{ expenses|length }} result{{ '' if expenses|length == 1 else 's' }}
+                </span>
+            </div>
+
+            <form action="{{ url_for('home') }}" method="GET" class="filter-form">
+                <div class="filter-field search-field">
+                    <label for="q">Search</label>
+                    <input
+                        type="search"
+                        id="q"
+                        name="q"
+                        value="{{ search_query }}"
+                        placeholder="Description or category"
+                    >
+                </div>
+
+                <div class="filter-field">
+                    <label for="month">Month</label>
+                    <input type="month" id="month" name="month" value="{{ selected_month }}">
+                </div>
+
+                <div class="filter-field">
+                    <label for="filter-category">Category</label>
+                    <select id="filter-category" name="category">
+                        <option value="">All categories</option>
+                        {% for category_name in categories %}
+                            <option
+                                value="{{ category_name }}"
+                                {% if selected_category == category_name %}selected{% endif %}
+                            >
+                                {{ category_name }}
+                            </option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <div class="filter-field">
+                    <label for="start_date">From date</label>
+                    <input type="date" id="start_date" name="start_date" value="{{ start_date }}">
+                </div>
+
+                <div class="filter-field">
+                    <label for="end_date">To date</label>
+                    <input type="date" id="end_date" name="end_date" value="{{ end_date }}">
+                </div>
+
+                <div class="filter-actions">
+                    <button type="submit" class="button button-dark">Apply filters</button>
+                    <a class="reset-link" href="{{ url_for('home') }}">Reset</a>
+                </div>
+            </form>
+
+            {% if expenses %}
+                <div class="table-scroll">
+                    <table class="transactions-table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Description</th>
+                                <th>Category</th>
+                                <th>Amount</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for expense in expenses %}
+                                <tr>
+                                    <td class="date-cell">{{ expense["date"] }}</td>
+                                    <td>
+                                        <span class="transaction-description">
+                                            {{ expense["description"] }}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <span class="category-chip category-chip-{{ expense['category']|lower }}">
+                                            {{ expense["category"] }}
+                                        </span>
+                                    </td>
+                                    <td class="amount-cell">
+                                        ₹{{ "%.2f"|format(expense["amount"]) }}
+                                    </td>
+                                    <td>
+                                        <details class="edit-details">
+                                            <summary class="action-link">Edit</summary>
+                                            <form
+                                                action="{{ url_for('edit_expense', expense_id=expense['id']) }}"
+                                                method="POST"
+                                                class="edit-form"
+                                            >
+                                                <div class="form-field">
+                                                    <label for="edit-amount-{{ expense['id'] }}">Amount (₹)</label>
+                                                    <input
+                                                        id="edit-amount-{{ expense['id'] }}"
+                                                        type="number"
+                                                        name="amount"
+                                                        min="0.01"
+                                                        step="0.01"
+                                                        value="{{ expense['amount'] }}"
+                                                        required
+                                                    >
+                                                </div>
+
+                                                <div class="form-field">
+                                                    <label for="edit-category-{{ expense['id'] }}">Category</label>
+                                                    <select id="edit-category-{{ expense['id'] }}" name="category" required>
+                                                        {% for category_name in categories %}
+                                                            <option
+                                                                value="{{ category_name }}"
+                                                                {% if expense['category'] == category_name %}selected{% endif %}
+                                                            >
+                                                                {{ category_name }}
+                                                            </option>
+                                                        {% endfor %}
+                                                    </select>
+                                                </div>
+
+                                                <div class="form-field">
+                                                    <label for="edit-date-{{ expense['id'] }}">Date</label>
+                                                    <input
+                                                        id="edit-date-{{ expense['id'] }}"
+                                                        type="date"
+                                                        name="date"
+                                                        value="{{ expense['date'] }}"
+                                                        required
+                                                    >
+                                                </div>
+
+                                                <div class="form-field">
+                                                    <label for="edit-description-{{ expense['id'] }}">Description</label>
+                                                    <input
+                                                        id="edit-description-{{ expense['id'] }}"
+                                                        type="text"
+                                                        name="description"
+                                                        maxlength="200"
+                                                        value="{{ expense['description'] }}"
+                                                        required
+                                                    >
+                                                </div>
+
+                                                <button class="button button-primary" type="submit">Save changes</button>
+                                            </form>
+                                        </details>
+
+                                        <form
+                                            class="delete-form"
+                                            action="{{ url_for('delete_expense', expense_id=expense['id']) }}"
+                                            method="POST"
+                                            onsubmit="return confirm('Delete this expense permanently?');"
+                                        >
+                                            <button class="delete-button" type="submit">Delete</button>
+                                        </form>
+                                    </td>
+                                </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="empty-state">
+                    <span class="empty-state-icon">▤</span>
+                    <h3>No expenses found</h3>
+                    <p>Try changing the filters, or add your first expense above.</p>
+                    <a href="{{ url_for('home') }}" class="button button-dark">Clear filters</a>
+                </div>
+            {% endif %}
+        </section>
+
+        <footer class="page-footer">
+            <span>ExpenseFlow</span>
+            <span>Spend mindfully. Plan confidently.</span>
+        </footer>
+    </main>
+
+    {% if category_totals %}
+    <script>
+        const categoryLabels = {{ category_totals | map(attribute='category') | list | tojson }};
+        const categoryValues = {{ category_totals | map(attribute='total') | list | tojson }};
+        const chartColors = ['#16845b', '#4b8df8', '#a78bfa', '#f4b740', '#f17c62', '#39b9bd'];
+        const chartCanvas = document.getElementById('categoryChart');
+
+        if (chartCanvas && window.Chart) {
+            new Chart(chartCanvas, {
+                type: 'doughnut',
+                data: {
+                    labels: categoryLabels,
+                    datasets: [{
+                        data: categoryValues,
+                        backgroundColor: chartColors,
+                        borderWidth: 3,
+                        borderColor: '#ffffff',
+                        hoverOffset: 5
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    cutout: '68%',
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return ' ₹' + Number(context.raw).toLocaleString('en-IN', {
+                                        minimumFractionDigits: 2,
+                                        maximumFractionDigits: 2
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    </script>
+    {% endif %}
+</body>
+</html>
