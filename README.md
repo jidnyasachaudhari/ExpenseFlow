@@ -46,7 +46,7 @@ ExpenseFlow is a personal expense management web application built using Flask a
    python -m flask --app main run --debug
    ```
 
-5. Open http://127.0.0.1:5000/ in your browser.
+5. Open https://expenseflow-c1zu.onrender.com/ in your browser.
 
 ## Database
 
@@ -54,4 +54,4 @@ The app uses SQLite. The local database file is excluded from Git to protect per
 
 ## Author
 
-Add your name and GitHub profile here.
+Name:Jidnyasa Chaudhari
